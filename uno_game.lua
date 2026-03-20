@@ -46,59 +46,6 @@ local function getPhase(triggerId)
     return p
 end
 
--- ── editDisplay 리스너 시스템 ──────────────────────────────────
-local listeners = {}
-
-function listen(mode, callback)
-    if not listeners[mode] then listeners[mode] = {} end
-    table.insert(listeners[mode], callback)
-end
-
-function callListenMain(mode, triggerId, data, meta)
-    local msgs = json.decode(data)
-    if listeners[mode] then
-        for _, cb in ipairs(listeners[mode]) do
-            msgs = cb(triggerId, msgs, meta)
-        end
-    end
-    return json.encode(msgs)
-end
-
--- editDisplay: 화면 표시 시 마지막 char 메시지에 게임 UI 자동 추가
-listen("editDisplay", function(triggerId, msgs, meta)
-    local phase = getPhase(triggerId)
-    if phase ~= "playing" and phase ~= "between_games" and phase ~= "match_end" then
-        return msgs
-    end
-
-    local gameHtml = getChatVar(triggerId, "cv_game_html") or ""
-    local statusHtml = getChatVar(triggerId, "cv_status_html") or ""
-    local panelHtml = getChatVar(triggerId, "cv_panel_html") or ""
-
-    if (gameHtml == "" or gameHtml == "null") and (statusHtml == "" or statusHtml == "null") then
-        return msgs
-    end
-
-    -- 결합할 UI HTML 생성
-    local uiBlock = ""
-    if statusHtml ~= "" and statusHtml ~= "null" then
-        uiBlock = uiBlock .. statusHtml
-    end
-    if gameHtml ~= "" and gameHtml ~= "null" then
-        uiBlock = uiBlock .. gameHtml
-    end
-
-    if uiBlock == "" then return msgs end
-
-    -- 마지막 char 메시지를 찾아서 게임 UI 추가
-    for i = #msgs, 1, -1 do
-        if msgs[i].role == "char" then
-            msgs[i].data = msgs[i].data .. "\n" .. uiBlock
-            break
-        end
-    end
-    return msgs
-end)
 
 -- ── 덱 ────────────────────────────────────────────────────────
 local function createDeck()
@@ -669,7 +616,7 @@ end
 -- ── 이벤트 함수 ────────────────────────────────────────────────
 function startGame(triggerId)
     local phase=getPhase(triggerId)
-    if phase=="playing" then return end
+    -- phase=="playing" 중에도 재시작 허용 (비정상 종료 복구)
     if phase=="match_end" then
         setChatVar(triggerId,"cv_wins_player","0")
         setChatVar(triggerId,"cv_wins_ai","0")
