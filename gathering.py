@@ -77,6 +77,7 @@ GATHER_ITEMS_BY_SEASON = {
 }
 
 MINE_ITEMS = [
+    # 일반 광석: str_req 만족 시 채굴 가능 (rank_req 없음 = 랭크 무관)
     {"id": "copper_ore",       "name": "구리 광석",      "grade": "Normal",    "rate": 0.40, "str_req": 5},
     {"id": "tin_ore",          "name": "주석 광석",      "grade": "Normal",    "rate": 0.30, "str_req": 5},
     {"id": "iron_ore",         "name": "철광석",         "grade": "Normal",    "rate": 0.30, "str_req": 8},

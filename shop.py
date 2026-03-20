@@ -41,16 +41,17 @@ def _find_in_dict(item_dict: dict, name_or_id: str) -> str | None:
             return item_id
 
     # 3. 모든 키워드 AND 매칭 (이름이 짧을수록 우선)
-    best_and = None
-    best_and_len = float('inf')
-    for item_id, item_data in item_dict.items():
-        item_name = item_data.get("name", "")
-        if all(kw in item_name for kw in keywords):
-            if len(item_name) < best_and_len:
-                best_and = item_id
-                best_and_len = len(item_name)
-    if best_and:
-        return best_and
+    if keywords:
+        best_and = None
+        best_and_len = float('inf')
+        for item_id, item_data in item_dict.items():
+            item_name = item_data.get("name", "")
+            if all(kw in item_name for kw in keywords):
+                if len(item_name) < best_and_len:
+                    best_and = item_id
+                    best_and_len = len(item_name)
+        if best_and:
+            return best_and
 
     # 4. 단일 부분 매칭 (이름이 짧을수록 우선)
     best_partial = None
