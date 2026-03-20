@@ -129,7 +129,7 @@ local function drawCards(triggerId,hand,count,isAI)
     local pile=d(getChatVar(triggerId,"cv_draw_pile") or "")
     if #pile==0 then
         local newDeck=shuffle(createDeck())
-        for i=1,math.min(30,#newDeck) do
+        for i=1,#newDeck do
             pile[#pile+1]=newDeck[i]
         end
         setChatVar(triggerId,"cv_draw_pile",s(pile))
@@ -258,10 +258,12 @@ local PANEL_BTN_MID='</span><span style="font-size:0.5rem;color:rgba(255,255,255
 local PANEL_BTN_SUFFIX='</span></div></div></div>'
 local function saveBottomUI(triggerId)
     local phase=getPhase(triggerId)
-    if phase~="match_end" then
+    -- playing 중에는 bottom UI 불필요 (게임판이 표시됨)
+    if phase=="playing" then
         setChatVar(triggerId,"cv_bottom_ui","")
         return
     end
+    -- match_end / between_games: 상태창 + 버튼을 마지막 메시지 하단에 유지
     local statusHtml=getChatVar(triggerId,"cv_status_html") or ""
     local label=nvl(getChatVar(triggerId,"cv_panel_label"),"다시 하기")
     local sub=nvl(getChatVar(triggerId,"cv_panel_sub"),"벌칙 RP 후 누르세요")
@@ -498,10 +500,10 @@ local function checkWin(triggerId,who,hand)
         local roundNum=tostring(tonumber(getChatVar(triggerId,"cv_game_num") or "1")-1)
         if who=="player" then
             icon="win";titleCls="uro-title-win";titleTxt=roundNum.."판 승리!"
-            subTxt="메시지를 보내면 다음 판 시작"
+            subTxt="하단 버튼을 눌러 다음 판을 시작하세요"
         else
             icon="lose";titleCls="uro-title-lose";titleTxt=roundNum.."판 패배"
-            subTxt="메시지를 보내면 다음 판 시작"
+            subTxt="하단 버튼을 눌러 다음 판을 시작하세요"
         end
     end
     local iconHTML
@@ -538,34 +540,42 @@ local function checkWin(triggerId,who,hand)
     return true
 end
 
--- ── AI 턴 (수정됨: 턴 종료 후 자동 대사 명령 추가) ──────────────────
+-- ── AI 턴 ──────────────────────────────────────────────────────
 local function processAI(triggerId)
-    local maxTurns=20
+    -- maxTurns: 스킵/리버스 연속 처리 상한 (성능 보호)
+    local maxTurns=8
     local won=false
+    -- 상태를 루프 전에 한 번만 읽음 (루프마다 chatvar 읽기/쓰기 방지)
+    local ah=d(nvl(getChatVar(triggerId,"cv_ai_hand"),""))
+    local top=nvl(getChatVar(triggerId,"cv_top_card"),"")
+    local cur=nvl(getChatVar(triggerId,"cv_current_color"),"red")
+    local finalMsg=""
+    local finalAction="ai_play"
+    local endTurn=false  -- 이번 루프에서 플레이어 턴으로 넘어가야 하면 true
+
+    if #ah==0 then won=true end
+
     for _=1,maxTurns do
-        if getPhase(triggerId)~="playing" then break end
-        local ah=d(nvl(getChatVar(triggerId,"cv_ai_hand"),""))
-        setChatVar(triggerId,"cv_ai_count",tostring(#ah))
+        if won or getPhase(triggerId)~="playing" then break end
         if #ah==0 then won=true; break end
-        local top=nvl(getChatVar(triggerId,"cv_top_card"),"")
-        local cur=nvl(getChatVar(triggerId,"cv_current_color"),"red")
+
         local ci,cc=aiPick(ah,top,cur)
         if not ci then
-            drawCards(triggerId,ah,1,true)
-            setChatVar(triggerId,"cv_message","미쿠가 카드를 뽑았습니다.")
-            setChatVar(triggerId,"cv_last_action","ai_draw")
-            setChatVar(triggerId,"cv_turn","player")
-            setChatVar(triggerId,"cv_uno_call","0")
+            -- 낼 카드 없음: 1장 뽑고 턴 종료
+            drawCards(triggerId,ah,1,true)  -- ah 인-플레이스 수정 + cv_ai_hand 저장
+            finalMsg="미쿠가 카드를 뽑았습니다."
+            finalAction="ai_draw"
+            endTurn=true
             break
         end
+
         table.remove(ah,ci)
-        setChatVar(triggerId,"cv_ai_hand",s(ah))
-        setChatVar(triggerId,"cv_ai_count",tostring(#ah))
-        setChatVar(triggerId,"cv_top_card",cc)
+        top=cc  -- 로컬 변수로 추적
         local c,v=parseCard(cc)
         local msg="미쿠: "..cardName(cc).." 사용!"
         local action="ai_play"
         local loopAgain=false
+
         if c=="any" then
             local cnt={red=0,yellow=0,green=0,blue=0}
             for _,card in ipairs(ah) do
@@ -574,7 +584,7 @@ local function processAI(triggerId)
             end
             local best="red"; local bc=-1
             for col,n in pairs(cnt) do if n>bc then bc=n; best=col end end
-            setChatVar(triggerId,"cv_current_color",best)
+            cur=best  -- 로컬 변수로 추적
             msg=msg.." → "..colorKr(best)
             if v=="wild4" then
                 local p=d(getChatVar(triggerId,"cv_player_hand") or "")
@@ -586,7 +596,7 @@ local function processAI(triggerId)
                 action="ai_wild"
             end
         else
-            setChatVar(triggerId,"cv_current_color",c)
+            cur=c  -- 로컬 변수로 추적
             if v=="draw2" then
                 local p=d(getChatVar(triggerId,"cv_player_hand") or "")
                 drawCards(triggerId,p,2,false)
@@ -601,6 +611,7 @@ local function processAI(triggerId)
                 loopAgain=true
             end
         end
+
         if #ah==1 then
             msg=msg.." UNO!"; action="ai_uno"
             -- 커스 이벤트: chatVar 카운터 기반 이중 안전장치
@@ -608,33 +619,45 @@ local function processAI(triggerId)
             curseCount = curseCount + 1
             setChatVar(triggerId, "cv_curse_attempts", tostring(curseCount))
             -- 최소 3번째 UNO 도달 이후 + math.random 1/100 확률
+            -- cv_draw_curse가 이미 ready면 중복 발동 방지
+            local existingCurse=getChatVar(triggerId,"cv_draw_curse") or ""
             local roll = math.random(1, 100)
-            if curseCount >= 3 and roll == 1 then
+            if curseCount >= 3 and roll == 1 and existingCurse~="ready" then
                 local gn={"green_1","green_2","green_3","green_5","green_6","green_7","green_9"}
-                setChatVar(triggerId,"cv_top_card",gn[math.random(#gn)])
-                setChatVar(triggerId,"cv_current_color","green")
+                top=gn[math.random(#gn)]  -- 로컬 변수로 추적
+                cur="green"               -- 로컬 변수로 추적
                 setChatVar(triggerId,"cv_player_hand","green_8,green_draw2,green_draw2,yellow_draw2,yellow_draw2,blue_draw2,blue_draw2,red_draw2,red_draw2,any_wild4,any_wild4,any_wild4,any_wild4")
                 setChatVar(triggerId,"cv_draw_curse","ready")
                 loopAgain=false
             end
         end
-        setChatVar(triggerId,"cv_message",msg)
-        setChatVar(triggerId,"cv_last_action",action)
+
+        finalMsg=msg
+        finalAction=action
         if #ah==0 then won=true; break end
         if not loopAgain then
-            setChatVar(triggerId,"cv_turn","player")
-            setChatVar(triggerId,"cv_uno_call","0")
+            endTurn=true
             break
         end
     end
-    
+
+    -- chatvar 쓰기: 루프 후 한 번만 (루프마다 쓰지 않음)
+    setChatVar(triggerId,"cv_ai_hand",s(ah))
+    setChatVar(triggerId,"cv_ai_count",tostring(#ah))
+    setChatVar(triggerId,"cv_top_card",top)
+    setChatVar(triggerId,"cv_current_color",cur)
+    setChatVar(triggerId,"cv_message",finalMsg)
+    setChatVar(triggerId,"cv_last_action",finalAction)
+    if endTurn then
+        setChatVar(triggerId,"cv_turn","player")
+        setChatVar(triggerId,"cv_uno_call","0")
+    end
+
     if getPhase(triggerId)=="playing" then
-        local ah_check=d(nvl(getChatVar(triggerId,"cv_ai_hand"),""))
-        if #ah_check==0 then won=true end
+        if #ah==0 then won=true end
         saveUI(triggerId)
     end
     if won then
-        local ah=d(nvl(getChatVar(triggerId,"cv_ai_hand"),""))
         checkWin(triggerId,"ai",ah)
     else
         savePanel(triggerId); saveStatus(triggerId)
