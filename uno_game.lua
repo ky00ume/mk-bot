@@ -233,7 +233,7 @@ end
 -- ── 패널 & 상태창 저장 ───────────────────────────────────────
 local function savePanel(triggerId)
     local phase=getPhase(triggerId)
-    if phase=="playing" or phase=="between_games" then
+    if phase=="playing" then
         setChatVar(triggerId,"cv_panel_html","")
         setChatVar(triggerId,"cv_panel_label","")
         setChatVar(triggerId,"cv_panel_sub","")
@@ -243,10 +243,30 @@ local function savePanel(triggerId)
     if phase=="match_end" then
         setChatVar(triggerId,"cv_panel_label","다시 하기")
         setChatVar(triggerId,"cv_panel_sub","벌칙 RP 후 누르세요")
+    elseif phase=="between_games" then
+        setChatVar(triggerId,"cv_panel_label","다음 판 시작")
+        setChatVar(triggerId,"cv_panel_sub","버튼을 눌러 다음 판을 시작하세요")
     else
         setChatVar(triggerId,"cv_panel_label","게임 시작")
         setChatVar(triggerId,"cv_panel_sub","카드를 눌러서 시작")
     end
+end
+
+-- ── 최하단 UI (RP 중 상태창 + 버튼 유지) ────────────────────────
+local PANEL_BTN_PREFIX='<div style="display:flex;justify-content:center;margin:6px 0;"><div risu-btn="game-start" style="display:flex;align-items:center;gap:10px;padding:8px 14px 8px 10px;background:linear-gradient(135deg,#0f2027,#203a43,#2c5364);border:1px solid rgba(57,197,187,0.3);border-radius:10px;cursor:pointer;"><div style="position:relative;width:32px;height:48px;flex-shrink:0;"><div style="position:absolute;top:5px;left:3px;width:28px;height:40px;border-radius:5px;background:#162535;border:1px solid #1e3548;"></div><div style="position:absolute;top:2px;left:1px;width:28px;height:40px;border-radius:5px;background:#1a2f42;border:1px solid #243f55;"></div><div style="position:absolute;top:0;left:0;width:28px;height:40px;border-radius:5px;background:linear-gradient(135deg,#0f2027,#203a43,#2c5364);border:1px solid #39c5bb;display:flex;align-items:center;justify-content:center;"><div style="position:absolute;width:76%;height:50%;border-radius:50%;border:1px solid rgba(57,197,187,0.35);transform:rotate(-30deg);"></div><span style="position:relative;z-index:1;font-size:0.45rem;font-weight:900;color:#39c5bb;transform:rotate(-15deg);letter-spacing:1.5px;font-family:sans-serif;">UNO</span></div></div><div style="display:flex;flex-direction:column;gap:2px;margin-left:4px;"><span style="background:#cb0323;color:#e4c713;font-size:0.42rem;font-weight:900;padding:1px 5px;border-radius:3px;letter-spacing:1px;border:1px solid #e4c713;font-family:sans-serif;">UNO</span><span style="font-size:0.75rem;font-weight:900;color:#39c5bb;font-family:sans-serif;">'
+local PANEL_BTN_MID='</span><span style="font-size:0.5rem;color:rgba(255,255,255,0.45);font-family:sans-serif;">'
+local PANEL_BTN_SUFFIX='</span></div></div></div>'
+local function saveBottomUI(triggerId)
+    local phase=getPhase(triggerId)
+    if phase~="match_end" then
+        setChatVar(triggerId,"cv_bottom_ui","")
+        return
+    end
+    local statusHtml=getChatVar(triggerId,"cv_status_html") or ""
+    local label=nvl(getChatVar(triggerId,"cv_panel_label"),"다시 하기")
+    local sub=nvl(getChatVar(triggerId,"cv_panel_sub"),"벌칙 RP 후 누르세요")
+    local panelHtml=PANEL_BTN_PREFIX..label..PANEL_BTN_MID..sub..PANEL_BTN_SUFFIX
+    setChatVar(triggerId,"cv_bottom_ui","\n"..statusHtml.."\n"..panelHtml)
 end
 
 local function saveStatus(triggerId)
@@ -263,6 +283,7 @@ local function saveStatus(triggerId)
     if mono=="" or mono=="null" then mono="..." end
     local html='<div class="uno-status"><div class="us-img" style="background-image:url({{source::char}});"></div><div class="us-fade"></div><span class="us-score">나 '..wp..'승 : 미쿠 '..wa..'승</span><span class="us-sub">'..gn..'/3판 &nbsp;·&nbsp; '..stateText..'</span><span class="us-mono">'..mono..'</span></div>'
     setChatVar(triggerId,"cv_status_html",html)
+    saveBottomUI(triggerId)
 end
 
 -- ── 게임 UI 저장 ───────────────────────────────────────────────
@@ -625,18 +646,18 @@ end
 -- ── 이벤트 함수 ────────────────────────────────────────────────
 function startGame(triggerId)
     local phase=getPhase(triggerId)
-    if phase=="playing" or phase=="between_games" then return end
+    if phase=="playing" then return end
     if phase=="match_end" then
         setChatVar(triggerId,"cv_wins_player","0")
         setChatVar(triggerId,"cv_wins_ai","0")
         setChatVar(triggerId,"cv_game_num","1")
     end
+    -- between_games: 기존 승점 유지하고 다음 판 시작
     setChatVar(triggerId,"cv_last_action","game_start")
     startNewGame(triggerId)
     savePanel(triggerId)
     saveStatus(triggerId)
     addChat(triggerId,"char","{STATUS_BAR}\n{UNO_GAME}\n{SIDE_PANEL}")
-    
 
     local len=getChatLength(triggerId)
     if len and len>0 then
@@ -847,7 +868,7 @@ function onButtonClick(triggerId, btnValue)
     elseif btnValue:match("^play%-(%d+)$") then
         local idx = tonumber(btnValue:match("^play%-(%d+)$"))
         if idx then playCard(triggerId, idx) end
-    elseif btnValue == "start-game" then
+    elseif btnValue == "game-start" then
         startGame(triggerId)
     end
 end
