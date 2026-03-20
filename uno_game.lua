@@ -360,14 +360,24 @@ local function saveUI(triggerId)
 end
 
 -- ── 랜덤 시드 초기화 (wasmoon 샌드박스 안전 버전) ─────────────────
+local _seedCounter = 0
 local function safeRandomSeed()
-    local seed = 0
+    _seedCounter = _seedCounter + 1
+    local seed = _seedCounter * 31
+    -- tostring({})은 Lua에서 테이블의 메모리 주소를 포함하므로 매번 다름
+    local addrStr = tostring({})
+    local addr = tonumber(addrStr:match("0x(%x+)") or addrStr:match("(%d+)")) or 0
+    seed = seed + addr
+    -- os.time, os.clock이 있으면 추가
     pcall(function() seed = seed + os.time() end)
     pcall(function() seed = seed + math.floor(os.clock() * 100000) end)
-    seed = seed + math.floor(math.random() * 1000000)
-    if seed == 0 then seed = 12345 end
+    -- 안전장치: seed가 여전히 작으면 추가 엔트로피
+    if seed < 1000 then
+        seed = seed + (tonumber(tostring(seed):reverse()) or 9999)
+    end
     math.randomseed(seed)
-    math.random(); math.random(); math.random()
+    -- 처음 몇 개는 버림 (LCG 초기값 편향 제거)
+    for i = 1, 10 do math.random() end
 end
 
 -- ── 게임 시작 ──────────────────────────────────────────────────
@@ -405,6 +415,7 @@ local function startNewGame(triggerId)
     setChatVar(triggerId,"cv_choose_color","0")
     setChatVar(triggerId,"cv_last_action","game_start")
     setChatVar(triggerId,"cv_draw_curse","")
+    setChatVar(triggerId,"cv_curse_attempts","0")
     setChatVar(triggerId,"cv_uno_pending","0")
     saveUI(triggerId)
     savePanel(triggerId)
@@ -558,9 +569,13 @@ local function processAI(triggerId)
         end
         if #ah==1 then
             msg=msg.." UNO!"; action="ai_uno"
-            -- 특수이벤트: 정확히 1/100 확률
+            -- 커스 이벤트: chatVar 카운터 기반 이중 안전장치
+            local curseCount = tonumber(getChatVar(triggerId, "cv_curse_attempts") or "0") or 0
+            curseCount = curseCount + 1
+            setChatVar(triggerId, "cv_curse_attempts", tostring(curseCount))
+            -- 최소 3번째 UNO 도달 이후 + math.random 1/100 확률
             local roll = math.random(1, 100)
-            if roll == 1 then
+            if curseCount >= 3 and roll == 1 then
                 local gn={"green_1","green_2","green_3","green_5","green_6","green_7","green_9"}
                 setChatVar(triggerId,"cv_top_card",gn[math.random(#gn)])
                 setChatVar(triggerId,"cv_current_color","green")
@@ -620,12 +635,8 @@ end
 function onStart(triggerId)
     savePanel(triggerId); saveStatus(triggerId)
     local phase=getPhase(triggerId)
-    local curse=getChatVar(triggerId,"cv_draw_curse") or ""
-    if curse=="end" then
-        upsertLocalLoreBook(triggerId,"curse_event_active",
-            "⚠️ 특수 이벤트 지침: 패닉 상태로 현실 부정하며 도망칠 것.",
-            {key="curse_active", alwaysActive=false})
-    end
+    -- 기존 커스 로어북이 남아있을 수 있으므로 항상 비활성화/삭제
+    upsertLocalLoreBook(triggerId,"curse_event_active","",{key="curse_active", alwaysActive=false})
     if phase=="between_games" then
         startNewGame(triggerId)
     end
