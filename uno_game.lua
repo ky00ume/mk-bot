@@ -206,10 +206,16 @@ local PANEL_BTN_SUFFIX='</span></div></div></div>'
 local function saveBottomUI(triggerId)
     local phase=getPhase(triggerId)
     if phase=="playing" then
-        -- playing 중에는 게임 UI를 마지막 메시지 하단에 표시 (스크롤 문제 해결)
-        -- saveUI가 먼저 호출되어 cv_game_html이 최신 상태임을 가정
-        local gameHTML=getChatVar(triggerId,"cv_game_html") or ""
-        setChatVar(triggerId,"cv_bottom_ui","\n"..gameHTML)
+        -- 게임 메시지가 마지막 메시지가 아닐 때만 bottom에 게임 UI 추가 (script 3와 중복 방지)
+        -- 게임 메시지가 마지막이면 script 3가 이미 {UNO_GAME}을 대체하므로 bottom은 비움
+        local gameIdx=tonumber(nvl(getChatVar(triggerId,"cv_game_msg_idx"),"-1")) or -1
+        local chatLen=getChatLength(triggerId) or 0
+        if gameIdx>=0 and (chatLen-1)>gameIdx then
+            local gameHTML=getChatVar(triggerId,"cv_game_html") or ""
+            setChatVar(triggerId,"cv_bottom_ui","\n"..gameHTML)
+        else
+            setChatVar(triggerId,"cv_bottom_ui","")
+        end
         return
     end
     -- match_end / between_games: 상태창 + 버튼을 마지막 메시지 하단에 유지
@@ -641,6 +647,9 @@ function startGame(triggerId)
     if len and len>0 then
         setChatVar(triggerId,"cv_game_msg_idx",tostring(len-1))
     end
+    -- addChat 및 cv_game_msg_idx 업데이트 후 saveStatus 재호출:
+    -- 게임 메시지가 마지막 메시지이므로 cv_bottom_ui=""로 재설정하여 중복 UI 방지
+    saveStatus(triggerId)
     reloadDisplay(triggerId)
 end
 
@@ -648,6 +657,23 @@ function onStart(triggerId)
     savePanel(triggerId); saveStatus(triggerId)
     local phase=getPhase(triggerId)
     upsertLocalLoreBook(triggerId,"curse_event_active","",{key="curse_active", alwaysActive=false})
+    -- 비정상 종료 복구: playing 중 cv_turn="ai" 또는 cv_choose_color="1"에 멈춘 경우 복구
+    -- (processAI 실행 중 오류 등으로 cv_turn="ai" 또는 색상선택 모드가 고정된 상태 대응)
+    -- 두 경우 모두 카드/뽑기 버튼이 비활성화되며 새로고침으로도 복구되지 않음
+    if phase=="playing" then
+        local turn=getChatVar(triggerId,"cv_turn") or "player"
+        local choose=getChatVar(triggerId,"cv_choose_color") or "0"
+        if turn=="ai" or choose=="1" then
+            setChatVar(triggerId,"cv_turn","player")
+            setChatVar(triggerId,"cv_choose_color","0")
+            saveUI(triggerId)
+            savePanel(triggerId)
+            saveStatus(triggerId)
+            reloadDisplay(triggerId)
+        end
+        -- playing 상태이므로 idle/between_games 게임 시작 로직은 실행하지 않음
+        return
+    end
     if phase=="idle" then
         setChatVar(triggerId,"cv_last_action","game_start")
         startNewGame(triggerId)
@@ -657,6 +683,7 @@ function onStart(triggerId)
         if len and len>0 then
             setChatVar(triggerId,"cv_game_msg_idx",tostring(len-1))
         end
+        saveStatus(triggerId)
         reloadDisplay(triggerId)
     elseif phase=="between_games" then
         startNewGame(triggerId)
@@ -666,6 +693,7 @@ function onStart(triggerId)
         if len and len>0 then
             setChatVar(triggerId,"cv_game_msg_idx",tostring(len-1))
         end
+        saveStatus(triggerId)
         reloadDisplay(triggerId)
     end
 end
@@ -814,14 +842,17 @@ function chooseColor(triggerId,color)
 end
 
 -- 패널티 콜 핸들러
+-- cv_uno_pending="1"은 플레이어가 패 1장 남기고 UNO를 외치지 않은 경우 설정됨
+-- 미쿠가 잡아내면 플레이어가 2장 드로우하는 패널티
 function penaltyCall(triggerId)
     if getPhase(triggerId)~="playing" then return end
     local unoPending=nvl(getChatVar(triggerId,"cv_uno_pending"),"0")
     if unoPending~="1" then return end
-    local ah=d(getChatVar(triggerId,"cv_ai_hand") or "")
-    drawCards(triggerId,ah,2,true)
+    local ph=d(nvl(getChatVar(triggerId,"cv_player_hand"),""))
+    drawCards(triggerId,ph,2,false)
+    setChatVar(triggerId,"cv_player_hand",s(ph))
     setChatVar(triggerId,"cv_uno_pending","0")
-    setChatVar(triggerId,"cv_message","미쿠 UNO 미선언 패널티! +2장")
+    setChatVar(triggerId,"cv_message","UNO 미선언 패널티! 카드 2장 드로우")
     setChatVar(triggerId,"cv_last_action","penalty")
     saveUI(triggerId); savePanel(triggerId); saveStatus(triggerId)
     reloadDisplay(triggerId)
