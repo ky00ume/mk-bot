@@ -175,7 +175,7 @@ local function getMikuLine(triggerId)
     local curse=getChatVar(triggerId,"cv_draw_curse") or ""
     if curse=="ready" then return "😏",pick({"UNO~ 이제 끝이야~ 어떻게 막을 거야?~","패가 몇 장이야?ㅋ 많아 보이는데~","이번 판 내 거야~ 각오해~"}) end
     if action=="curse_green8" then return "😱",pick({"잠깐... 그린 8?!","어?! 그 패... 설마?!","야 잠깐만!! 뭔가 이상한데?!"}) end
-    if action=="curse_end" or curse=="end" then return "😭",pick({"이게... 이게 말이 돼?!","야!!! 전부 드로우 카드라고?! 말도 안 돼!!","...도망가야겠어. 아니야 이건 반칙이야!!"}) end
+    if curse=="end" then return "😭",pick({"이게... 이게 말이 돼?!","야!!! 전부 드로우 카드라고?! 말도 안 돼!!","...도망가야겠어. 아니야 이건 반칙이야!!"}) end
     
     if action=="player_uno" then return "😱",pick({"야야야!!! UNO?! 진짜야?! 안돼 안돼!!","잠깐!! UNO?! 이게 말이 돼?!","야!! UNO라고?! 심장 떨어질 뻔!!"}) end
     if action=="ai_uno" then return "😏",pick({"UNO~ 이제 끝이야~ 포기해도 돼~","한 장 남았어~ 나이스 트라이나 해봐~😏","UNO!! 이미 내 승리야~ 알죠?~"}) end
@@ -360,8 +360,11 @@ local function saveUI(triggerId)
 end
 
 -- ── 랜덤 시드 초기화 (wasmoon 샌드박스 안전 버전) ─────────────────
+-- wasmoon 환경에서는 os.time/os.clock이 동작하지 않아 시드가 고정되는
+-- 버그가 있었음. cv_rng_counter(영속 카운터) + getChatLength()로
+-- 매 게임마다 다른 시드를 보장한다.
 local _seedCounter = 0
-local function safeRandomSeed()
+local function safeRandomSeed(triggerId)
     _seedCounter = _seedCounter + 1
     local seed = _seedCounter * 31
     -- tostring({})은 Lua에서 테이블의 메모리 주소를 포함하므로 매번 다름
@@ -371,6 +374,16 @@ local function safeRandomSeed()
     -- os.time, os.clock이 있으면 추가
     pcall(function() seed = seed + os.time() end)
     pcall(function() seed = seed + math.floor(os.clock() * 100000) end)
+    -- RisuAI/wasmoon 전용: 영속 카운터 + 채팅 길이로 엔트로피 확보
+    -- os.time/os.clock 없이도 매 게임 시드가 달라짐
+    if triggerId then
+        local cnt = tonumber(getChatVar(triggerId, "cv_rng_counter") or "0") or 0
+        cnt = cnt + 1
+        setChatVar(triggerId, "cv_rng_counter", tostring(cnt))
+        seed = seed + cnt * 7919
+        local chatLen = getChatLength(triggerId) or 0
+        seed = seed + chatLen * 1337
+    end
     -- 안전장치: seed가 여전히 작으면 추가 엔트로피
     if seed < 1000 then
         seed = seed + (tonumber(tostring(seed):reverse()) or 9999)
@@ -382,7 +395,7 @@ end
 
 -- ── 게임 시작 ──────────────────────────────────────────────────
 local function startNewGame(triggerId)
-    safeRandomSeed()
+    safeRandomSeed(triggerId)
     upsertLocalLoreBook(triggerId,"curse_event_active","",{key="curse_active", alwaysActive=false})
     local deck=shuffle(createDeck())
     local ph,ah={},{}
@@ -689,6 +702,17 @@ function playCard(triggerId,idx)
         if curse=="ready" then
             setChatVar(triggerId,"cv_draw_curse","end")
             action="curse_green8"
+            -- 커스 이벤트 발동: 로어북 활성화로 AI에게 상황 전달
+            upsertLocalLoreBook(triggerId,"curse_event_active",
+                "⚠️ 특수 이벤트 발동: 미쿠와나 나이스 트라이 원작 재현 이벤트\n\n"..
+                "지금 이 순간, 플레이어의 패가 전부 드로우 카드(+2×8장, +4×4장)였고 그린 8 하나만으로 전부 내려놓아 미쿠에게 합계 24장이 넘는 카드가 쏟아졌다.\n\n"..
+                "반드시 아래 방식으로 반응할 것:\n"..
+                "1. 미쿠가 패닉 상태로 카드 더미를 바라보며 현실 부정\n"..
+                "2. 테이블을 뒤집거나 카드를 날리며 도망치려 함\n"..
+                "3. 울면서 방에서 도망치는 장면으로 마무리\n"..
+                "4. 마지막 줄에 반드시: \"...UNO를 할 때는 카드를 잘 섞어서 이런 일이 발생하지 않도록 합시다.\"\n\n"..
+                "이 이벤트 중에는 평소의 메스가키 태도를 완전히 잃고 진짜로 무너져야 한다.",
+                {key="curse_active", alwaysActive=true})
         end
     end
     if c=="any" then
