@@ -205,9 +205,11 @@ local PANEL_BTN_MID='</span><span style="font-size:0.5rem;color:rgba(255,255,255
 local PANEL_BTN_SUFFIX='</span></div></div></div>'
 local function saveBottomUI(triggerId)
     local phase=getPhase(triggerId)
-    -- playing 중에는 bottom UI 불필요 (게임판이 표시됨)
     if phase=="playing" then
-        setChatVar(triggerId,"cv_bottom_ui","")
+        -- playing 중에는 게임 UI를 마지막 메시지 하단에 표시 (스크롤 문제 해결)
+        -- saveUI가 먼저 호출되어 cv_game_html이 최신 상태임을 가정
+        local gameHTML=getChatVar(triggerId,"cv_game_html") or ""
+        setChatVar(triggerId,"cv_bottom_ui","\n"..gameHTML)
         return
     end
     -- match_end / between_games: 상태창 + 버튼을 마지막 메시지 하단에 유지
@@ -586,6 +588,12 @@ local function processAI(triggerId)
             endTurn=true
             break
         end
+    end
+
+    -- maxTurns 소진 후에도 endTurn=false인 경우 (스킵/리버스 연속으로 루프가 자연 종료)
+    -- cv_turn을 "ai"로 방치하면 플레이어가 영원히 조작 불가 → 강제로 턴 반환
+    if not endTurn and not won then
+        endTurn=true
     end
 
     -- chatvar 쓰기: 루프 후 한 번만 (루프마다 쓰지 않음)
