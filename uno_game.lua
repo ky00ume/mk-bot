@@ -635,10 +635,26 @@ end
 function onStart(triggerId)
     savePanel(triggerId); saveStatus(triggerId)
     local phase=getPhase(triggerId)
-    -- 기존 커스 로어북이 남아있을 수 있으므로 항상 비활성화/삭제
     upsertLocalLoreBook(triggerId,"curse_event_active","",{key="curse_active", alwaysActive=false})
-    if phase=="between_games" then
+    if phase=="idle" then
+        setChatVar(triggerId,"cv_last_action","game_start")
         startNewGame(triggerId)
+        savePanel(triggerId); saveStatus(triggerId)
+        addChat(triggerId,"char","{STATUS_BAR}\n{UNO_GAME}\n{SIDE_PANEL}")
+        local len=getChatLength(triggerId)
+        if len and len>0 then
+            setChatVar(triggerId,"cv_game_msg_idx",tostring(len-1))
+        end
+        reloadDisplay(triggerId)
+    elseif phase=="between_games" then
+        startNewGame(triggerId)
+        savePanel(triggerId); saveStatus(triggerId)
+        addChat(triggerId,"char","{STATUS_BAR}\n{UNO_GAME}\n{SIDE_PANEL}")
+        local len=getChatLength(triggerId)
+        if len and len>0 then
+            setChatVar(triggerId,"cv_game_msg_idx",tostring(len-1))
+        end
+        reloadDisplay(triggerId)
     end
 end
 
